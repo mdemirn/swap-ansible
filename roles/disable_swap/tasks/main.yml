@@ -1,0 +1,177 @@
+---
+- name: Verify operating system is Linux
+  ansible.builtin.assert:
+    that:
+      - ansible_system == "Linux"
+    fail_msg: "This role only supports Linux systems. Detected: {{ ansible_system }}"
+    success_msg: "Operating system verified: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+  tags:
+    - always
+
+- name: Get current swap status
+  ansible.builtin.command: swapon --show
+  register: swap_status
+  changed_when: false
+  failed_when: false
+  tags:
+    - swap
+    - check
+
+- name: Check fstab for swap entries
+  ansible.builtin.shell: grep -E '^[^#].*\s+swap\s+' /etc/fstab || true
+  register: fstab_swap_check
+  changed_when: false
+  tags:
+    - swap
+    - check
+
+- name: Get all swap systemd units
+  ansible.builtin.shell: systemctl list-units --type=swap --all --no-legend | awk '{print $1}' || true
+  register: swap_units
+  changed_when: false
+  tags:
+    - swap
+    - check
+
+- name: Get current swappiness value
+  ansible.builtin.slurp:
+    src: /proc/sys/vm/swappiness
+  register: current_swappiness_raw
+  tags:
+    - swappiness
+    - check
+
+- name: Set swappiness fact
+  ansible.builtin.set_fact:
+    current_swappiness: "{{ current_swappiness_raw.content | b64decode | trim }}"
+  tags:
+    - swappiness
+    - check
+
+- name: Set swap state facts
+  ansible.builtin.set_fact:
+    swap_is_active: "{{ swap_status.stdout | length > 0 }}"
+    swap_in_fstab: "{{ fstab_swap_check.stdout | length > 0 }}"
+    swap_needs_action: "{{ (swap_status.stdout | length > 0) or (fstab_swap_check.stdout | length > 0) }}"
+  tags:
+    - swap
+    - check
+
+- name: Display swap already disabled message
+  ansible.builtin.debug:
+    msg: "Swap is already disabled and not in fstab on {{ inventory_hostname }}"
+  when: not swap_needs_action
+  tags:
+    - swap
+    - info
+
+- name: Disable swap block
+  when: swap_needs_action
+  tags:
+    - swap
+    - disable
+  block:
+    - name: Disable swap immediately
+      ansible.builtin.command: swapoff -a
+      when: swap_is_active
+      changed_when: true
+
+    - name: Backup fstab before modification
+      ansible.builtin.copy:
+        src: /etc/fstab
+        dest: /etc/fstab.ansible.backup
+        remote_src: true
+        mode: '0644'
+      when:
+        - swap_backup_fstab | bool
+        - swap_remove_fstab_entry | bool
+        - swap_in_fstab
+
+    - name: Remove swap entries from fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^[^#].*\s+swap\s+'
+        state: absent
+      when:
+        - swap_remove_fstab_entry | bool
+        - swap_in_fstab
+
+    - name: Disable all swap systemd units
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+        masked: true
+      loop: "{{ swap_units.stdout_lines }}"
+      when:
+        - swap_disable_permanently | bool
+        - swap_units.stdout_lines | length > 0
+      failed_when: false
+
+    - name: Disable swap.target
+      ansible.builtin.systemd:
+        name: swap.target
+        state: stopped
+        enabled: false
+        masked: true
+      when: swap_disable_permanently | bool
+      failed_when: false
+
+    - name: Verify swap is disabled
+      ansible.builtin.command: swapon --show
+      register: swap_verify
+      changed_when: false
+      failed_when: swap_verify.stdout | length > 0
+
+  rescue:
+    - name: Restore fstab from backup
+      ansible.builtin.copy:
+        src: /etc/fstab.ansible.backup
+        dest: /etc/fstab
+        remote_src: true
+        mode: '0644'
+      when: swap_backup_fstab | bool
+      failed_when: false
+
+    - name: Display error message
+      ansible.builtin.debug:
+        msg: "Failed to disable swap on {{ inventory_hostname }}. fstab restored from backup. Manual intervention required."
+
+    - name: Fail the play
+      ansible.builtin.fail:
+        msg: "Swap disable operation failed"
+
+- name: Display swappiness already configured message
+  ansible.builtin.debug:
+    msg: "Swappiness is already set to {{ swap_swappiness_value }} on {{ inventory_hostname }}"
+  when:
+    - swap_set_swappiness | bool
+    - current_swappiness | int == swap_swappiness_value | int
+  tags:
+    - swappiness
+    - info
+
+- name: Configure swappiness block
+  when:
+    - swap_set_swappiness | bool
+    - current_swappiness | int != swap_swappiness_value | int
+  tags:
+    - swappiness
+    - configure
+  block:
+    - name: "Set swappiness to {{ swap_swappiness_value }} permanently"
+      ansible.posix.sysctl:
+        name: vm.swappiness
+        value: "{{ swap_swappiness_value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-swappiness.conf
+        reload: true
+
+  rescue:
+    - name: Display swappiness error message
+      ansible.builtin.debug:
+        msg: "Failed to set swappiness on {{ inventory_hostname }}. Manual intervention required."
+
+    - name: Fail the play
+      ansible.builtin.fail:
+        msg: "Swappiness configuration failed"

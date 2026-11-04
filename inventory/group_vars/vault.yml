@@ -1,0 +1,5 @@
+---
+# SSH password, used only when ssh_auth_method is "password".
+# Put your own value here, then encrypt the file:
+#   ansible-vault encrypt inventory/group_vars/vault.yml
+vault_ssh_password: "CHANGE_ME"

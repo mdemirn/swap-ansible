@@ -1,0 +1,11 @@
+---
+- name: Disable swap on Linux servers
+  hosts: linux_servers
+  gather_facts: true
+  vars_files:
+    - "{{ playbook_dir }}/inventory/group_vars/vault.yml"
+  roles:
+    - role: disable_swap
+      tags:
+        - swap
+        - swappiness

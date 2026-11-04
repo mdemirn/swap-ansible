@@ -1,0 +1,31 @@
+---
+galaxy_info:
+  role_name: disable_swap
+  namespace: mdemirn
+  author: mdemirn
+  description: Disable swap on Linux systems
+  license: MIT
+  min_ansible_version: "2.9"
+  platforms:
+    - name: EL
+      versions:
+        - "7"
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+  galaxy_tags:
+    - swap
+    - linux
+    - system
+    - kubernetes
+
+dependencies: []
+
+allow_duplicates: false

@@ -1,0 +1,6 @@
+---
+swap_disable_permanently: true
+swap_remove_fstab_entry: true
+swap_backup_fstab: true
+swap_set_swappiness: true
+swap_swappiness_value: 0

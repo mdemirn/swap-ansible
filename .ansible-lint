@@ -1,0 +1,25 @@
+---
+profile: production
+
+exclude_paths:
+  - .git/
+  - .github/
+  - collections/
+
+skip_list:
+  - yaml[line-length]
+  - name[template]
+
+warn_list:
+  - command-instead-of-shell
+  - no-changed-when
+
+offline: false
+
+use_default_rules: true
+
+enable_list:
+  - args
+  - empty-string-compare
+  - no-log-password
+  - no-same-owner
